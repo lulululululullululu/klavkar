@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a0f1e">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Klavkarr 210 — Diagnostic OBD-II</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600;700&family=Barlow+Condensed:wght@700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #080c18; --surface: #0d1428; --panel: #111b35; --border: #1e2d55;
+    --accent: #00d4ff; --accent2: #ff4d6d; --accent3: #39ff14; --warn: #ffb700;
+    --text: #e0eaff; --muted: #4a6080;
+    --mono: 'Share Tech Mono', monospace; --sans: 'Barlow', sans-serif; --cond: 'Barlow Condensed', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100dvh; overflow-x: hidden; }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px; pointer-events: none; z-index: 0;
+  }
+  header {
+    position: sticky; top: 0; z-index: 100;
+    background: linear-gradient(180deg, #080c18 60%, transparent);
+    padding: 14px 16px 10px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .logo { font-family: var(--cond); font-size: 22px; font-weight: 900; letter-spacing: 2px; background: linear-gradient(90deg, var(--accent), #7b61ff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .logo span { -webkit-text-fill-color: var(--accent2); }
+  #status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: all .4s; flex-shrink: 0; }
+  #status-dot.connected { background: var(--accent3); box-shadow: 0 0 10px var(--accent3); animation: pulse-dot 2s infinite; }
+  #status-dot.connecting { background: var(--warn); animation: pulse-dot 0.8s infinite; }
+  #status-dot.error { background: var(--accent2); }
+  @keyframes pulse-dot { 0%,100% { transform: scale(1); } 50% { transform: scale(1.3); opacity: 0.7; } }
+  .status-wrap { display: flex; align-items: center; gap: 8px; }
+  #status-label { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  main { padding: 0 12px 100px; position: relative; z-index: 1; }
+  #connect-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 24px 20px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .card-title { font-family: var(--cond); font-size: 13px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; color: var(--muted); }
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 20px; border-radius: 10px; border: none; cursor: pointer; font-family: var(--cond); font-size: 17px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; transition: all .2s; -webkit-user-select: none; position: relative; overflow: hidden; }
+  .btn::after { content: ''; position: absolute; inset: 0; background: white; opacity: 0; transition: opacity .15s; }
+  .btn:active::after { opacity: 0.1; }
+  .btn-primary { background: linear-gradient(135deg, #0057d4, #00b4ff); color: #fff; box-shadow: 0 4px 20px rgba(0,180,255,0.3); }
+  .btn-warn { background: linear-gradient(135deg, #b07800, #ffb700); color: #000; box-shadow: 0 4px 20px rgba(255,183,0,0.3); }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .btn-ai { background: linear-gradient(135deg, #4a0080, #9b00ff); color: #fff; box-shadow: 0 4px 20px rgba(155,0,255,0.4); }
+  .btn:disabled { opacity: 0.35; pointer-events: none; }
+  .btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 4px; margin-bottom: 16px; }
+  .tab { flex: 1; padding: 10px 4px; border-radius: 8px; border: none; background: transparent; color: var(--muted); font-family: var(--cond); font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; transition: all .2s; }
+  .tab.active { background: var(--panel); color: var(--accent); box-shadow: 0 0 12px rgba(0,212,255,0.15); }
+  .panel { display: none; flex-direction: column; gap: 12px; }
+  .panel.active { display: flex; }
+  .dtc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .dtc-count { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .dtc-count span { color: var(--accent2); font-size: 16px; font-weight: bold; }
+  #dtc-list { display: flex; flex-direction: column; gap: 8px; }
+  .dtc-item { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent2); border-radius: 10px; padding: 14px; animation: slideIn .3s ease; }
+  .dtc-item.pending { border-left-color: var(--warn); }
+  .dtc-item.permanent { border-left-color: #7b61ff; }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+  .dtc-code { font-family: var(--mono); font-size: 20px; font-weight: bold; color: var(--accent); letter-spacing: 2px; }
+  .dtc-desc { font-size: 13px; color: var(--text); margin-top: 4px; line-height: 1.5; }
+  .dtc-type { display: inline-block; margin-top: 6px; font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 4px; background: rgba(255,77,109,0.15); color: var(--accent2); text-transform: uppercase; letter-spacing: 1px; }
+  .dtc-item.pending .dtc-type { background: rgba(255,183,0,0.15); color: var(--warn); }
+  .dtc-item.permanent .dtc-type { background: rgba(123,97,255,0.15); color: #7b61ff; }
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 14px; line-height: 1.8; }
+  .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+  .empty-state.ok .icon::after { content: '✅'; }
+  .empty-state.wait .icon::after { content: '🔌'; }
+  .empty-state.ok p { color: var(--accent3); }
+  .live-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .live-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 12px; position: relative; overflow: hidden; }
+  .live-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--accent), transparent); }
+  .live-label { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+  .live-value { font-family: var(--mono); font-size: 28px; font-weight: bold; color: var(--accent); line-height: 1; transition: color .3s; }
+  .live-value.warn { color: var(--warn); }
+  .live-value.danger { color: var(--accent2); }
+  .live-unit { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .live-card-wide { grid-column: span 2; }
+  #console-area { background: #040810; border: 1px solid var(--border); border-radius: 12px; padding: 12px; font-family: var(--mono); font-size: 12px; height: 220px; overflow-y: auto; }
+  .log-line { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .log-line.tx { color: var(--accent); } .log-line.rx { color: var(--accent3); } .log-line.err { color: var(--accent2); } .log-line.info { color: var(--warn); }
+  .console-input-wrap { display: flex; gap: 8px; margin-top: 8px; }
+  #cmd-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font-family: var(--mono); font-size: 13px; text-transform: uppercase; }
+  #cmd-input:focus { outline: none; border-color: var(--accent); }
+  .ready-grid { display: flex; flex-direction: column; gap: 8px; }
+  .ready-item { display: flex; align-items: center; justify-content: space-between; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .ready-name { font-size: 14px; color: var(--text); }
+  .ready-badge { font-family: var(--mono); font-size: 11px; font-weight: bold; padding: 4px 10px; border-radius: 5px; text-transform: uppercase; letter-spacing: 1px; }
+  .ready-badge.ok { background: rgba(57,255,20,0.15); color: var(--accent3); }
+  .ready-badge.nok { background: rgba(255,77,109,0.15); color: var(--accent2); }
+  .ready-badge.na { background: rgba(74,96,128,0.2); color: var(--muted); }
+  .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.2); border-top-color: currentColor; animation: spin .7s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 20px; font-size: 13px; color: var(--text); opacity: 0; transition: all .3s; z-index: 999; white-space: nowrap; pointer-events: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { border-color: var(--accent2); color: var(--accent2); }
+  #toast.ok { border-color: var(--accent3); color: var(--accent3); }
+  #init-progress { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: none; }
+  .progress-label { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .progress-bar-wrap { background: var(--bg); border-radius: 4px; height: 6px; overflow: hidden; }
+  .progress-bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), #7b61ff); width: 0%; transition: width .4s ease; box-shadow: 0 0 8px var(--accent); }
+
+  /* ══════════════════════════════
+     PANNEAU IA CLAUDE
+  ══════════════════════════════ */
+  #ai-fab {
+    position: fixed; bottom: 20px; right: 16px; z-index: 500;
+    width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #4a0080, #9b00ff);
+    box-shadow: 0 4px 24px rgba(155,0,255,0.5);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; transition: transform .2s;
+    animation: glow-ai 3s infinite;
+  }
+  @keyframes glow-ai { 0%,100% { box-shadow: 0 4px 24px rgba(155,0,255,0.5); } 50% { box-shadow: 0 4px 40px rgba(155,0,255,0.9); } }
+  #ai-fab:active { transform: scale(0.92); }
+  #ai-badge { position: absolute; top: -4px; right: -4px; background: var(--accent2); color: white; font-size: 10px; font-weight: bold; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; display: none; }
+
+  #ai-panel {
+    position: fixed; inset: 0; z-index: 600;
+    display: flex; flex-direction: column;
+    background: var(--bg);
+    transform: translateY(100%); transition: transform .35s cubic-bezier(.4,0,.2,1);
+  }
+  #ai-panel.open { transform: translateY(0); }
+
+  #ai-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .ai-title { font-family: var(--cond); font-size: 18px; font-weight: 900; letter-spacing: 2px; background: linear-gradient(90deg, #9b00ff, var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .ai-subtitle { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 2px; }
+  #btn-close-ai { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 8px 14px; font-family: var(--cond); font-size: 13px; font-weight: 700; cursor: pointer; }
+
+  #ai-messages {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .ai-msg { max-width: 90%; padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; }
+  .ai-msg.user { align-self: flex-end; background: linear-gradient(135deg, #0057d4, #00b4ff); color: white; border-radius: 12px 12px 2px 12px; }
+  .ai-msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px 12px 12px 2px; color: var(--text); }
+  .ai-msg.assistant.typing { opacity: 0.7; }
+  .ai-msg .msg-label { font-family: var(--mono); font-size: 10px; margin-bottom: 4px; opacity: 0.6; }
+
+  #ai-applied-banner {
+    display: none; margin: 0 16px;
+    background: rgba(57,255,20,0.1); border: 1px solid var(--accent3);
+    border-radius: 8px; padding: 10px 14px;
+    font-family: var(--mono); font-size: 12px; color: var(--accent3);
+    animation: slideIn .3s ease;
+  }
+
+  #ai-input-wrap {
+    padding: 12px 16px; border-top: 1px solid var(--border);
+    background: var(--surface);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #ai-input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+    color: var(--text); font-family: var(--sans); font-size: 14px;
+    resize: none; min-height: 50px; max-height: 120px;
+  }
+  #ai-input:focus { outline: none; border-color: #9b00ff; }
+  .ai-actions { display: flex; gap: 8px; }
+  #btn-ai-send { flex: 1; padding: 12px; border-radius: 10px; border: none; cursor: pointer; background: linear-gradient(135deg, #4a0080, #9b00ff); color: white; font-family: var(--cond); font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+  #btn-ai-send:disabled { opacity: 0.4; pointer-events: none; }
+  .ai-suggestion { font-size: 11px; color: var(--muted); }
+  .ai-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ai-chip { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; transition: all .15s; }
+  .ai-chip:active { background: rgba(155,0,255,0.2); border-color: #9b00ff; color: #cf8fff; }
+
+  #ai-key-wrap { display: flex; gap: 8px; align-items: center; }
+  #ai-key-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-family: var(--mono); font-size: 12px; }
+  #ai-key-input:focus { outline: none; border-color: #9b00ff; }
+  #btn-save-key { background: #9b00ff; color: white; border: none; border-radius: 8px; padding: 8px 14px; font-family: var(--cond); font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .ai-key-label { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-bottom: 4px; }
+  .key-ok { color: var(--accent3); font-size: 11px; font-family: var(--mono); display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">KLAVKARR<span>·</span>210</div>
+  <div class="status-wrap">
+    <span id="status-label">DÉCONNECTÉ</span>
+    <div id="status-dot"></div>
+  </div>
+</header>
+
+<main>
+  <div id="connect-card">
+    <div class="card-title">⚡ Connexion Bluetooth OBD-II</div>
+    <button class="btn btn-primary" id="btn-connect">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6.5 6.5l11 11M17.5 6.5L12 12l5.5 5.5M6.5 6.5L12 12l-5.5 5.5"/></svg>
+      Connecter le Klavkarr 210
+    </button>
+    <button class="btn btn-ghost" id="btn-disconnect" disabled>Déconnecter</button>
+    <div id="init-progress">
+      <div class="progress-label" id="init-label">Initialisation…</div>
+      <div class="progress-bar-wrap"><div class="progress-bar-fill" id="init-bar"></div></div>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="dtc">🔴 Codes</button>
+    <button class="tab" data-tab="live">📊 Live</button>
+    <button class="tab" data-tab="ready">✅ Tests</button>
+    <button class="tab" data-tab="console">💻 Console</button>
+  </div>
+
+  <div class="panel active" id="panel-dtc">
+    <div class="dtc-header"><div class="dtc-count">Codes défaut : <span id="dtc-total">—</span></div></div>
+    <div id="dtc-list"><div class="empty-state wait"><div class="icon"></div><p>Connectez le Klavkarr 210<br>pour lire les codes défaut.</p></div></div>
+    <button class="btn btn-primary" id="btn-read-dtc" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      Lire les codes défaut
+    </button>
+    <button class="btn btn-warn" id="btn-clear-dtc" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+      Effacer les codes défaut
+    </button>
+  </div>
+
+  <div class="panel" id="panel-live">
+    <div class="live-grid">
+      <div class="live-card"><div class="live-label">RPM</div><div class="live-value" id="live-rpm">—</div><div class="live-unit">tr/min</div></div>
+      <div class="live-card"><div class="live-label">Vitesse</div><div class="live-value" id="live-speed">—</div><div class="live-unit">km/h</div></div>
+      <div class="live-card"><div class="live-label">Temp. moteur</div><div class="live-value" id="live-coolant">—</div><div class="live-unit">°C</div></div>
+      <div class="live-card"><div class="live-label">Charge moteur</div><div class="live-value" id="live-load">—</div><div class="live-unit">%</div></div>
+      <div class="live-card"><div class="live-label">Tension batterie</div><div class="live-value" id="live-voltage">—</div><div class="live-unit">V</div></div>
+      <div class="live-card"><div class="live-label">MAP / Pression</div><div class="live-value" id="live-map">—</div><div class="live-unit">kPa</div></div>
+      <div class="live-card live-card-wide"><div class="live-label">Avance allumage</div><div class="live-value" id="live-timing">—</div><div class="live-unit">° avant PMH</div></div>
+    </div>
+    <button class="btn btn-primary" id="btn-live-start" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Démarrer la lecture live
+    </button>
+    <button class="btn btn-ghost" id="btn-live-stop" disabled>Arrêter</button>
+  </div>
+
+  <div class="panel" id="panel-ready">
+    <div class="ready-grid" id="ready-list"><div class="empty-state wait"><div class="icon"></div><p>Connectez le Klavkarr 210<br>pour voir les tests de préparation.</p></div></div>
+    <button class="btn btn-primary" id="btn-read-ready" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      Lire les tests de préparation
+    </button>
+  </div>
+
+  <div class="panel" id="panel-console">
+    <div id="console-area"></div>
+    <div class="console-input-wrap">
+      <input id="cmd-input" type="text" placeholder="AT ou PID (ex: ATZ, 010C)" maxlength="20">
+      <button class="btn btn-primary" id="btn-send-cmd" disabled style="padding:10px 16px;font-size:14px;">ENVOYER</button>
+    </div>
+    <button class="btn btn-ghost" id="btn-clear-console">Effacer console</button>
+  </div>
+</main>
+
+<!-- FAB Claude AI -->
+<button id="ai-fab" title="Assistant Claude IA">🤖<div id="ai-badge">!</div></button>
+
+<!-- Panneau Claude IA -->
+<div id="ai-panel">
+  <div id="ai-header">
+    <div>
+      <div class="ai-title">✦ ASSISTANT IA</div>
+      <div class="ai-subtitle">CLAUDE · MODIFICATION EN TEMPS RÉEL</div>
+    </div>
+    <button id="btn-close-ai">✕ FERMER</button>
+  </div>
+
+  <div id="ai-messages">
+    <div class="ai-msg assistant">
+      <div class="msg-label">CLAUDE</div>
+      Bonjour ! Je suis intégré directement dans votre app Klavkarr.<br><br>
+      Dites-moi ce que vous voulez modifier ou ajouter — je mets à jour l'application en temps réel sans que vous ayez à toucher au code. 🔧
+    </div>
+  </div>
+
+  <div id="ai-applied-banner">✅ Modifications appliquées — rechargez si nécessaire</div>
+
+  <div id="ai-input-wrap">
+    <!-- Clé API -->
+    <div>
+      <div class="ai-key-label">CLÉ API ANTHROPIC <span class="key-ok" id="key-ok">✓ CONFIGURÉE</span></div>
+      <div id="ai-key-wrap">
+        <input id="ai-key-input" type="password" placeholder="sk-ant-api03-...">
+        <button id="btn-save-key">SAUVER</button>
+      </div>
+    </div>
+
+    <!-- Suggestions rapides -->
+    <div class="ai-suggestion">Suggestions rapides :</div>
+    <div class="ai-chips">
+      <div class="ai-chip">Ajouter jauge RPM graphique</div>
+      <div class="ai-chip">Historique des codes défaut</div>
+      <div class="ai-chip">Alertes température</div>
+      <div class="ai-chip">Mode nuit/jour</div>
+      <div class="ai-chip">Freeze frame</div>
+      <div class="ai-chip">Export CSV</div>
+    </div>
+
+    <!-- Input message -->
+    <textarea id="ai-input" placeholder="Décrivez ce que vous voulez modifier ou ajouter…" rows="2"></textarea>
+    <div class="ai-actions">
+      <button id="btn-ai-send">🚀 MODIFIER L'APP</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════
+// OBD-II / ELM327 — Klavkarr 210
+// ═══════════════════════════════════════════
+const BT_SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb';
+const BT_CHAR_TX = '0000fff1-0000-1000-8000-00805f9b34fb';
+const BT_CHAR_RX = '0000fff2-0000-1000-8000-00805f9b34fb';
+const SPP_SERVICE = '00001101-0000-1000-8000-00805f9b34fb';
+
+let device=null,server=null,txChar=null,responseBuffer='',responseResolver=null,liveInterval=null,isConnected=false;
+
+const statusDot=document.getElementById('status-dot');
+const statusLabel=document.getElementById('status-label');
+const btnConnect=document.getElementById('btn-connect');
+const btnDisconn=document.getElementById('btn-disconnect');
+const initProg=document.getElementById('init-progress');
+const initLabel=document.getElementById('init-label');
+const initBar=document.getElementById('init-bar');
+const toast=document.getElementById('toast');
+const consoleArea=document.getElementById('console-area');
+const cmdInput=document.getElementById('cmd-input');
+
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-'+t.dataset.tab).classList.add('active');
+  });
+});
+
+function showToast(msg,type=''){
+  toast.textContent=msg; toast.className='show '+type;
+  clearTimeout(toast._t); toast._t=setTimeout(()=>toast.className='',3000);
+}
+function logLine(text,type='info'){
+  const line=document.createElement('div'); line.className='log-line '+type;
+  const ts=new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  line.textContent=`[${ts}] ${text}`; consoleArea.appendChild(line);
+  consoleArea.scrollTop=consoleArea.scrollHeight;
+}
+function setStatus(state){
+  statusDot.className=state;
+  const labels={'':'DÉCONNECTÉ',connecting:'CONNEXION…',connected:'CONNECTÉ',error:'ERREUR'};
+  statusLabel.textContent=labels[state]||'DÉCONNECTÉ';
+  isConnected=state==='connected';
+  btnConnect.disabled=isConnected; btnDisconn.disabled=!isConnected;
+  document.querySelectorAll('[id^="btn-read"],[id^="btn-clear"],[id^="btn-live"],[id^="btn-send"]').forEach(b=>b.disabled=!isConnected);
+}
+function showProgress(label,pct){
+  initProg.style.display='block'; initLabel.textContent=label; initBar.style.width=pct+'%';
+  if(pct>=100) setTimeout(()=>initProg.style.display='none',800);
+}
+function onDataReceived(event){
+  const chunk=new TextDecoder().decode(new Uint8Array(event.target.value.buffer));
+  responseBuffer+=chunk;
+  if((responseBuffer.includes('>')||responseBuffer.includes('OK')||responseBuffer.includes('ELM'))&&responseResolver){
+    const res=responseBuffer.trim(); responseBuffer='';
+    const r=responseResolver; responseResolver=null; r(res);
+  }
+}
+function sendCommand(cmd,timeoutMs=3000){
+  return new Promise((resolve,reject)=>{
+    if(!txChar){reject('Non connecté');return;}
+    logLine('→ '+cmd,'tx'); responseBuffer=''; responseResolver=resolve;
+    txChar.writeValue(new TextEncoder().encode(cmd+'\r')).catch(reject);
+    setTimeout(()=>{
+      if(responseResolver){responseResolver=null;const p=responseBuffer.trim()||'(timeout)';responseBuffer='';resolve(p);}
+    },timeoutMs);
+  });
+}
+async function initELM(){
+  const steps=[['ATZ','Reset…',10],['ATE0','Echo OFF…',30],['ATL0','Linefeed OFF…',45],['ATS0','Spaces OFF…',55],['ATH1','Headers ON…',65],['ATSP0','Protocole auto…',80],['0100','Test OBD…',95]];
+  for(const[cmd,label,pct]of steps){
+    showProgress(label,pct); const resp=await sendCommand(cmd,4000);
+    logLine('← '+resp.replace(/\n/g,' '),'rx'); await sleep(200);
+  }
+  showProgress('Prêt !',100);
+}
+btnConnect.addEventListener('click',async()=>{
+  if(!navigator.bluetooth){showToast('Web Bluetooth non supporté','err');return;}
+  try{
+    setStatus('connecting'); logLine('Recherche du Klavkarr 210…','info');
+    device=await navigator.bluetooth.requestDevice({
+      filters:[{namePrefix:'KONNWEI'},{namePrefix:'Klavkarr'},{namePrefix:'OBD'},{namePrefix:'ELM'},{namePrefix:'V-LINK'},{namePrefix:'OBDII'}],
+      optionalServices:[BT_SERVICE,SPP_SERVICE,'generic_access']
+    });
+    device.addEventListener('gattserverdisconnected',onDisconnected);
+    logLine('Trouvé : '+device.name,'info');
+    server=await device.gatt.connect(); logLine('GATT connecté','info');
+    let service;
+    try{service=await server.getPrimaryService(BT_SERVICE);}catch{service=await server.getPrimaryService(SPP_SERVICE);}
+    txChar=await service.getCharacteristic(BT_CHAR_TX);
+    const rxChar=await service.getCharacteristic(BT_CHAR_RX);
+    await rxChar.startNotifications(); rxChar.addEventListener('characteristicvaluechanged',onDataReceived);
+    setStatus('connected'); logLine('Initialisation ELM327…','info');
+    await initELM(); showToast('Klavkarr 210 connecté !','ok');
+  }catch(e){logLine('ERREUR : '+e.message,'err');setStatus('error');showToast('Connexion échouée','err');setTimeout(()=>setStatus(''),2000);}
+});
+btnDisconn.addEventListener('click',async()=>{
+  stopLive(); if(device?.gatt?.connected)device.gatt.disconnect(); onDisconnected();
+});
+function onDisconnected(){logLine('Déconnecté','info');setStatus('');txChar=null;server=null;showToast('Appareil déconnecté');}
+
+const DTC_DESC={P0100:'Débit massique air - circuit',P0101:'Débit massique air - performance',P0102:'Débit massique air - signal bas',P0103:'Débit massique air - signal haut',P0110:'Temp. air admission - circuit',P0115:'Temp. eau moteur - circuit',P0116:'Temp. eau - performance',P0117:'Temp. eau - signal bas',P0118:'Temp. eau - signal haut',P0120:'Capteur papillon - circuit A',P0121:'Capteur papillon - performance',P0130:'Sonde lambda amont - circuit banc 1',P0131:'Sonde lambda amont - signal bas',P0132:'Sonde lambda amont - signal haut',P0133:'Sonde lambda amont - réponse lente',P0134:'Sonde lambda amont - inactive',P0170:'Adaptation carburant - banc 1',P0171:'Mélange trop pauvre - banc 1',P0172:'Mélange trop riche - banc 1',P0200:'Circuit injecteur',P0300:'Ratés allumage aléatoires',P0301:'Ratés cylindre 1',P0302:'Ratés cylindre 2',P0303:'Ratés cylindre 3',P0304:'Ratés cylindre 4',P0335:'Capteur vilebrequin - circuit',P0340:'Capteur arbre à cames - circuit',P0400:'EGR - flux',P0401:'EGR - flux insuffisant',P0402:'EGR - flux excessif',P0420:'Catalyseur sous seuil - banc 1',P0430:'Catalyseur sous seuil - banc 2',P0440:'Système évaporatif',P0442:'Système évaporatif - petite fuite',P0455:'Système évaporatif - grande fuite',P0500:'Capteur vitesse véhicule',P0505:'Régulation ralenti',P0600:'Lien série - défaut',P0700:'Transmission - contrôle',P1000:'Systèmes OBD non testés'};
+
+function decodeDTC(raw){
+  const n=parseInt(raw[0],16); const t=(n>>2)&3; const c=['P','C','B','U'][t]+(n&3)+raw[1]+raw[2]+raw[3];
+  return{code:c,desc:DTC_DESC[c]||'Code non documenté — consulter manuel',type:'confirmed'};
+}
+function parseDTCResponse(response){
+  const codes=[]; const clean=response.split('\n').join(' ').replace(/43|41\s*03|>/g,'').replace(/\s+/g,' ').trim();
+  const hexPairs=clean.match(/[0-9A-Fa-f]{4}/g)||[];
+  for(const pair of hexPairs){if(pair==='0000')continue;try{codes.push(decodeDTC(pair));}catch(e){}}
+  return codes;
+}
+document.getElementById('btn-read-dtc').addEventListener('click',async()=>{
+  const btn=document.getElementById('btn-read-dtc'); btn.disabled=true; btn.innerHTML='<div class="spinner"></div> Lecture…';
+  logLine('Lecture codes défaut (mode 03)…','info');
+  try{
+    const resp=await sendCommand('03',8000); logLine('← '+resp.replace(/\n/g,' '),'rx');
+    const codes=parseDTCResponse(resp); renderDTCs(codes);
+    showToast(codes.length?`${codes.length} code(s) trouvé(s)`:'Aucun code défaut !',codes.length?'err':'ok');
+  }catch(e){logLine('ERREUR : '+e,'err');showToast('Erreur de lecture','err');}
+  btn.disabled=false; btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>Lire les codes défaut';
+});
+function renderDTCs(codes){
+  const list=document.getElementById('dtc-list'); document.getElementById('dtc-total').textContent=codes.length;
+  if(!codes.length){list.innerHTML='<div class="empty-state ok"><div class="icon"></div><p>Aucun code défaut.<br>Tout est OK !</p></div>';return;}
+  list.innerHTML=codes.map(d=>`<div class="dtc-item ${d.type}"><div class="dtc-code">${d.code}</div><div class="dtc-desc">${d.desc}</div><span class="dtc-type">${d.type==='pending'?'En attente':d.type==='permanent'?'Permanent':'Confirmé'}</span></div>`).join('');
+}
+document.getElementById('btn-clear-dtc').addEventListener('click',async()=>{
+  if(!confirm('⚠️ Effacer TOUS les codes défaut ?\n\nContinuer ?'))return;
+  const btn=document.getElementById('btn-clear-dtc'); btn.disabled=true; btn.innerHTML='<div class="spinner"></div> Effacement…';
+  logLine('Effacement codes défaut (mode 04)…','info');
+  try{
+    const resp=await sendCommand('04',6000); logLine('← '+resp,'rx');
+    renderDTCs([]); document.getElementById('dtc-total').textContent='0';
+    showToast('Codes effacés !','ok');
+  }catch(e){logLine('ERREUR : '+e,'err');showToast('Erreur effacement','err');}
+  btn.disabled=false; btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>Effacer les codes défaut';
+});
+
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+async function parsePID(pid,resp){
+  const bytes=resp.replace(/\s/g,'').replace(/^41/,'').replace(pid,'').replace(/>/,'');
+  const hex=bytes.match(/.{2}/g)||[]; const b=hex.map(h=>parseInt(h,16));
+  if(!b.length||b[0]===undefined)return null;
+  switch(pid){case'0C':return Math.round((b[0]*256+b[1])/4);case'0D':return b[0];case'05':return b[0]-40;case'04':return Math.round(b[0]*100/255);case'0B':return b[0];case'0E':return(b[0]/2)-64;default:return null;}
+}
+async function readPID(pid,el,transform){
+  try{const resp=await sendCommand('01'+pid,1500);const val=await parsePID(pid,resp.replace(/\n/g,'').replace(/\s/g,'').toUpperCase());if(val!==null){el.textContent=val;if(transform)transform(val,el);}}catch(e){}
+}
+async function liveLoop(){
+  await readPID('0C',document.getElementById('live-rpm'),(v,el)=>{el.className='live-value'+(v>5000?' danger':v>3500?' warn':'');});
+  await readPID('0D',document.getElementById('live-speed'));
+  await readPID('05',document.getElementById('live-coolant'),(v,el)=>{el.className='live-value'+(v>105?' danger':v>95?' warn':'');});
+  await readPID('04',document.getElementById('live-load'));
+  await readPID('0B',document.getElementById('live-map'));
+  await readPID('0E',document.getElementById('live-timing'));
+  try{const vResp=await sendCommand('ATRV',2000);const vMatch=vResp.match(/(\d+\.\d+)/);if(vMatch){const v=parseFloat(vMatch[1]);const el=document.getElementById('live-voltage');el.textContent=v.toFixed(1);el.className='live-value'+(v<11.5?' danger':v<12.2?' warn':'');}}catch(e){}
+}
+function stopLive(){if(liveInterval){clearInterval(liveInterval);liveInterval=null;}document.getElementById('btn-live-start').disabled=!isConnected;document.getElementById('btn-live-stop').disabled=true;}
+document.getElementById('btn-live-start').addEventListener('click',()=>{
+  document.getElementById('btn-live-start').disabled=true; document.getElementById('btn-live-stop').disabled=false;
+  logLine('Lecture live démarrée…','info'); liveLoop(); liveInterval=setInterval(liveLoop,2500);
+});
+document.getElementById('btn-live-stop').addEventListener('click',stopLive);
+
+document.getElementById('btn-read-ready').addEventListener('click',async()=>{
+  const btn=document.getElementById('btn-read-ready'); btn.disabled=true; btn.innerHTML='<div class="spinner"></div> Lecture…';
+  logLine('Lecture tests préparation…','info');
+  try{const resp=await sendCommand('0101',5000);logLine('← '+resp.replace(/\n/g,' '),'rx');renderReadiness(resp);}
+  catch(e){logLine('ERREUR : '+e,'err');showToast('Erreur de lecture','err');}
+  btn.disabled=false; btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>Lire les tests de préparation';
+});
+function renderReadiness(resp){
+  const clean=resp.replace(/\s/g,'').replace(/4101/,'').replace(/>/g,'');
+  const hex=clean.match(/.{2}/g)||[]; const bytes=hex.map(h=>parseInt(h,16));
+  const list=document.getElementById('ready-list');
+  if(bytes.length<4){list.innerHTML='<div class="empty-state wait"><div class="icon"></div><p>Données incomplètes.<br>Réessayez.</p></div>';return;}
+  const milOn=!!(bytes[0]&0x80); const dtcCount=bytes[0]&0x7F;
+  const s1=bytes[1]||0,i1=bytes[2]||0,s2=bytes[3]||0,i2=bytes[4]||0;
+  let html=`<div class="ready-item" style="border-left:3px solid ${milOn?'var(--accent2)':'var(--accent3)'}"><span class="ready-name">🔴 MIL (voyant moteur)</span><span class="ready-badge ${milOn?'nok':'ok'}">${milOn?'ALLUMÉ':'ÉTEINT'}</span></div><div class="ready-item"><span class="ready-name">Codes DTC actifs</span><span class="ready-badge ${dtcCount?'nok':'ok'}">${dtcCount}</span></div>`;
+  const monitors=[{name:'Allumage/MIL',sup:s1&0x01,inc:i1&0x01},{name:'Carburant',sup:s1&0x02,inc:i1&0x02},{name:'Composants',sup:s1&0x04,inc:i1&0x04},{name:"Ratés d'allumage",sup:s1&0x10,inc:i1&0x10},{name:'Catalyseur',sup:s2&0x01,inc:i2&0x01},{name:'Chauffe catalyseur',sup:s2&0x02,inc:i2&0x02},{name:'Évaporatif',sup:s2&0x04,inc:i2&0x04},{name:'Air secondaire',sup:s2&0x08,inc:i2&0x08},{name:'Climatisation',sup:s2&0x10,inc:i2&0x10},{name:'Sonde lambda',sup:s2&0x20,inc:i2&0x20},{name:'Chauffe sonde λ',sup:s2&0x40,inc:i2&0x40},{name:'EGR / VVT',sup:s2&0x80,inc:i2&0x80}];
+  for(const m of monitors){if(!m.sup){html+=`<div class="ready-item"><span class="ready-name">${m.name}</span><span class="ready-badge na">N/A</span></div>`;}else{const ok=!m.inc;html+=`<div class="ready-item"><span class="ready-name">${m.name}</span><span class="ready-badge ${ok?'ok':'nok'}">${ok?'OK':'INCOMPLET'}</span></div>`;}}
+  list.innerHTML=html;
+}
+
+document.getElementById('btn-send-cmd').addEventListener('click',async()=>{
+  const cmd=cmdInput.value.trim().toUpperCase(); if(!cmd)return; cmdInput.value='';
+  try{const resp=await sendCommand(cmd,4000);logLine('← '+resp.replace(/\n/g,' '),'rx');}catch(e){logLine('ERREUR : '+e,'err');}
+});
+cmdInput.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('btn-send-cmd').click();});
+document.getElementById('btn-clear-console').addEventListener('click',()=>consoleArea.innerHTML='');
+
+logLine('Application Klavkarr 210 prête.','info');
+logLine('Appuyez sur "Connecter" pour démarrer.','info');
+if(!navigator.bluetooth)logLine('⚠️ Web Bluetooth non détecté !','err');
+
+// ═══════════════════════════════════════════
+// MODULE CLAUDE IA — MODIFICATION EN TEMPS RÉEL
+// ═══════════════════════════════════════════
+const aiPanel=document.getElementById('ai-panel');
+const aiMessages=document.getElementById('ai-messages');
+const aiInput=document.getElementById('ai-input');
+const btnAiSend=document.getElementById('btn-ai-send');
+const aiBanner=document.getElementById('ai-applied-banner');
+const aiKeyInput=document.getElementById('ai-key-input');
+const keyOk=document.getElementById('key-ok');
+
+let apiKey=localStorage.getItem('klavkarr_api_key')||'';
+if(apiKey){aiKeyInput.value='sk-ant-...'+apiKey.slice(-4);keyOk.style.display='inline';}
+
+document.getElementById('btn-save-key').addEventListener('click',()=>{
+  const k=aiKeyInput.value.trim();
+  if(!k.startsWith('sk-ant-')){showToast('Clé invalide — doit commencer par sk-ant-','err');return;}
+  apiKey=k; localStorage.setItem('klavkarr_api_key',k);
+  aiKeyInput.value='sk-ant-...'+k.slice(-4); keyOk.style.display='inline';
+  showToast('Clé API sauvegardée !','ok');
+});
+
+document.getElementById('ai-fab').addEventListener('click',()=>aiPanel.classList.add('open'));
+document.getElementById('btn-close-ai').addEventListener('click',()=>aiPanel.classList.remove('open'));
+
+document.querySelectorAll('.ai-chip').forEach(chip=>{
+  chip.addEventListener('click',()=>{aiInput.value=chip.textContent;aiInput.focus();});
+});
+
+function addAiMessage(role,text){
+  const div=document.createElement('div');
+  div.className='ai-msg '+role;
+  div.innerHTML=`<div class="msg-label">${role==='user'?'VOUS':'CLAUDE'}</div>${text.replace(/\n/g,'<br>')}`;
+  aiMessages.appendChild(div); aiMessages.scrollTop=aiMessages.scrollHeight;
+  return div;
+}
+
+function getCurrentHTML(){return document.documentElement.outerHTML;}
+
+btnAiSend.addEventListener('click',async()=>{
+  const userMsg=aiInput.value.trim(); if(!userMsg)return;
+  if(!apiKey){showToast('Entrez votre clé API Anthropic d\'abord','err');return;}
+
+  aiInput.value=''; addAiMessage('user',userMsg);
+  btnAiSend.disabled=true; btnAiSend.textContent='⏳ Claude réfléchit…';
+
+  const typingDiv=addAiMessage('assistant','<div class="spinner" style="display:inline-block"></div> Analyse en cours…');
+  typingDiv.classList.add('typing');
+
+  const systemPrompt=`Tu es un assistant intégré dans une application web de diagnostic OBD-II pour Klavkarr 210 (Audi A5/A6/A7/A8 2010-2015).
+
+L'utilisateur veut modifier ou améliorer l'application. Tu as accès au code HTML complet de la page.
+
+RÈGLES IMPORTANTES :
+1. Si l'utilisateur demande une modification de l'interface ou des fonctionnalités, réponds avec le code JavaScript à exécuter via eval() pour modifier la page EN TEMPS RÉEL. Entoure ce code de balises <JS_EXEC> et </JS_EXEC>.
+2. Si l'utilisateur veut ajouter un nouvel onglet, une nouvelle section, ou modifier du CSS, génère le JS qui modifie le DOM directement.
+3. Si la modification est trop complexe pour être faite en JS live, explique ce qu'il faut changer dans le fichier HTML et fournis le code exact.
+4. Réponds TOUJOURS en français.
+5. Sois concis mais précis.
+6. Tu connais le contexte : Audi A5/A6/A7/A8 2010-2015, Klavkarr 210, ELM327, OBD-II.
+
+Exemples de ce que tu peux faire avec JS_EXEC :
+- Ajouter un nouveau panneau Live avec une jauge SVG animée
+- Modifier les couleurs et le thème
+- Ajouter un historique des DTC avec timestamps
+- Ajouter des alertes sonores
+- Ajouter de nouveaux PIDs spécifiques Audi
+- Modifier les intervalles de lecture
+`;
+
+  try{
+    const response=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:4000,
+        system:systemPrompt,
+        messages:[{role:'user',content:`Demande de l'utilisateur : ${userMsg}\n\nPage actuelle (résumé) : Application Klavkarr 210 avec onglets Codes DTC, Live Data (RPM/vitesse/temp/charge/tension/MAP/avance), Tests de préparation, Console. Style dark blue. Bluetooth ELM327.`}]
+      })
+    });
+
+    const data=await response.json();
+    if(data.error){throw new Error(data.error.message);}
+
+    const reply=data.content[0].text;
+    typingDiv.remove();
+
+    // Extraire et exécuter le JS si présent
+    const jsMatch=reply.match(/<JS_EXEC>([\s\S]*?)<\/JS_EXEC>/);
+    const displayText=reply.replace(/<JS_EXEC>[\s\S]*?<\/JS_EXEC>/g,'').trim();
+
+    addAiMessage('assistant',displayText||(jsMatch?'✅ Modifications appliquées !':'Réponse reçue.'));
+
+    if(jsMatch){
+      try{
+        eval(jsMatch[1]);
+        aiBanner.style.display='block';
+        aiBanner.textContent='✅ Modifications appliquées en temps réel !';
+        setTimeout(()=>aiBanner.style.display='none',4000);
+        showToast('App mise à jour par Claude !','ok');
+      }catch(e){
+        addAiMessage('assistant','⚠️ Erreur lors de l\'application : '+e.message);
+        showToast('Erreur d\'application JS','err');
+      }
+    }
+  }catch(e){
+    typingDiv.remove();
+    addAiMessage('assistant','❌ Erreur : '+e.message+'\n\nVérifiez votre clé API Anthropic.');
+    showToast('Erreur API Claude','err');
+  }
+
+  btnAiSend.disabled=false; btnAiSend.textContent='🚀 MODIFIER L\'APP';
+});
+
+aiInput.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();btnAiSend.click();}});
+</script>
+</body>
+</html>
